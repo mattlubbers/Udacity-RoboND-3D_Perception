@@ -95,18 +95,29 @@ Convert Point Cloud to ROS Messages and Publish
 #### 1.3) Features Extracted
 ##### Compute the Feature Vector
 ```python
+        chists = compute_color_histograms(ros_cluster, using_hsv=True)
+        normals = get_normals(ros_cluster)
+        nhists = compute_normal_histograms(normals)
+        feature = np.concatenate((chists, nhists))
 ```
 ##### Predict and Append Object Label
 ```python
+        prediction = clf.predict(scaler.transform(feature.reshape(1,-1)))
+        label = encoder.inverse_transform(prediction)[0]
+        detected_objects_labels.append(label)
 ```
 ##### Publish Label into RViz
 ```python
+        label_pos = list(white_cloud[pts_list[0]])
+        label_pos[2] += .4
+        object_markers_pub.publish(make_label(label,label_pos, index))
 ```
 ##### Add Object to Object List
 ```python
-    # Classify the clusters! (loop through each detected cluster one at a time)
-    detected_objects_labels = []
-    detected_objects = []
+        do = DetectedObject()
+        do.label = label
+        do.cloud = ros_cluster
+        detected_objects.append(do)
 ```
 ##### 1.4) Object Detection Training
 ##### Capture Ojbects in Test World
@@ -117,19 +128,62 @@ Visualization snapshot from Gazebo:
 
 ### **Pick and Place**
 #### 2.1) Create tabletop setups (`test*.world`)
-For each new test world, modify the launch file to load correct shopping items
-
+For each new test world, modify the launch file to load correct pick list:
+```
+<rosparam command="load" file="$(find pr2_robot)/config/pick_list_3.yaml"/>
+```
+Simarly, change the test world within the launch file:
+```
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(find pr2_robot)/worlds/test3.world"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="paused" value="false"/>
+    <arg name="gui" value="true"/>
+    <arg name="headless" value="false"/>
+    <arg name="debug" value="false"/>
+  </include>
+```
 #### 2.2) Perform Object Recognition
-Use the perception pipeline and trained model to detect and label objects on the table for each test world
-#### 2.3) Read in Respective Pick Pist (`pick_list_*.yaml`)
-Load pick list for given test world to determine which objects should be selected, as well as the bin they must be placed
-#### 2.4) Construct Messages for `PickPlace` request and Output to a `.yaml` file
-Output the object label, location, and destination bin
-
-
-And here's another image! 
+Use the perception pipeline and trained model to detect and label objects on the table for each test world. Here is a sample snapshot of the labeled objects:
 ![demo-2](https://user-images.githubusercontent.com/20687560/28748286-9f65680e-7468-11e7-83dc-f1a32380b89c.png)
-
+#### 2.3) Read in Respective Pick Pist (`pick_list_*.yaml`)
+Load pick list for given test world to determine which objects should be selected, as well as the bin they must be placed. Here's an example pick list:
+```
+object_list:
+  - name: biscuits
+    group: green
+  - name: soap
+    group: green
+  - name: soap2
+    group: red
+```
+#### 2.4) Construct Messages for `PickPlace` request and Output to a `.yaml` file
+Output the object label, location, and destination bin. Here is an example object output:
+```
+object_list:
+- arm_name: right
+  object_name: biscuits
+  pick_pose:
+    orientation:
+      w: 0.0
+      x: 0.0
+      y: 0.0
+      z: 0.0
+    position:
+      x: 0.32823479175567627
+      y: -0.003643086412921548
+      z: 0.5888928174972534
+  place_pose:
+    orientation:
+      w: 0.0
+      x: 0.0
+      y: 0.0
+      z: 0.0
+    position:
+      x: 0
+      y: -0.71
+      z: 0.605
+```
 #### What worked!
 
 

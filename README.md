@@ -2,7 +2,7 @@
 ---
 ### **Building a Perception Pipeline:**
 #### 1.1) Filtering and RANSAC Plane Fitting
-Statistical Outlier Filtering
+Statistical Outlier Filtering:
 ```python
     # Convert ROS msg to PCL data
     cloud = ros_to_pcl(pcl_msg)
@@ -15,7 +15,7 @@ Statistical Outlier Filtering
     cloud = outlierFilt.filter()
 ```
 ##### Voxel Downsampling and Pass-Through Filter
-Downsample the cloud density and filter out regions of the environment that do not contain objects of interest
+Downsample the cloud density and filter out regions of the environment that do not contain objects of interest:
 ```python
     # Voxel Grid Downsampling
     vox = cloud.make_voxel_grid_filter()
@@ -33,7 +33,7 @@ Downsample the cloud density and filter out regions of the environment that do n
     cloud_filtered = passthrough.filter()
 ```
 ##### RANSAC Plane Segmentation
-Filter out the table to focus processing on the objects
+Filter out the table to focus processing on the objects:
 ```python
     seg = cloud_filtered.make_segmenter()
     seg.set_model_type(pcl.SACMODEL_PLANE)
@@ -48,12 +48,13 @@ Filter out the table to focus processing on the objects
 ```
 #### 1.2) Clustering for Segmentation  
 ##### Euclidean Clustering
+Create the white cloud:
 ```python
 white_cloud = XYZRGB_to_XYZ(cloud_objects)
 tree = white_cloud.make_kdtree()
 ```
 ##### Cluster-Mask Point Cloud to Visualize each Cluster
-Set cluster parameters
+Set clustering parameters (Tolerance, min/max Size):
 ```python
     ec = white_cloud.make_EuclideanClusterExtraction()
     ec.set_ClusterTolerance(0.015)
@@ -67,7 +68,7 @@ Set cluster parameters
     color_cluster_point_list = []
 ```
 ##### White Cloud to RGB
-Iterate through white point cloud to construct RGB color point cloud clusters
+Iterate through white point cloud to construct RGB color point cloud clusters:
 ```python
     for j, indices in enumerate(cluster_indices):
         for i, indice in enumerate(indices):
@@ -80,7 +81,7 @@ Iterate through white point cloud to construct RGB color point cloud clusters
     cluster_cloud.from_list(color_cluster_point_list)
 ```
 ##### PCL data to ROS and publish messages
-Convert Point Cloud to ROS Messages and Publish
+Convert Point Cloud to ROS Messages and Publish:
 ```python
     # Convert PCL data to ROS messages
     ros_cloud_objects = pcl_to_ros(cloud_objects)
@@ -93,97 +94,100 @@ Convert Point Cloud to ROS Messages and Publish
     pcl_cluster_pub.publish(ros_cluster_cloud)
 ```
 #### 1.3) Features Extracted
-##### Compute the Feature Vector
+Compute the Feature Vector:
 ```python
-        chists = compute_color_histograms(ros_cluster, using_hsv=True)
-        normals = get_normals(ros_cluster)
-        nhists = compute_normal_histograms(normals)
-        feature = np.concatenate((chists, nhists))
+    chists = compute_color_histograms(ros_cluster, using_hsv=True)
+    normals = get_normals(ros_cluster)
+    nhists = compute_normal_histograms(normals)
+    feature = np.concatenate((chists, nhists))
 ```
-##### Predict and Append Object Label
+Predict and Append Object Label:
 ```python
-        prediction = clf.predict(scaler.transform(feature.reshape(1,-1)))
-        label = encoder.inverse_transform(prediction)[0]
-        detected_objects_labels.append(label)
+    prediction = clf.predict(scaler.transform(feature.reshape(1,-1)))
+    label = encoder.inverse_transform(prediction)[0]
+    detected_objects_labels.append(label)
 ```
-##### Publish Label into RViz
+Publish Label into RViz:
 ```python
-        label_pos = list(white_cloud[pts_list[0]])
-        label_pos[2] += .4
-        object_markers_pub.publish(make_label(label,label_pos, index))
+    label_pos = list(white_cloud[pts_list[0]])
+    label_pos[2] += .4
+    object_markers_pub.publish(make_label(label,label_pos, index))
 ```
-##### Add Object to Object List
+Add Object to Object List:
 ```python
-        do = DetectedObject()
-        do.label = label
-        do.cloud = ros_cluster
-        detected_objects.append(do)
+    # Classify the clusters! (loop through each detected cluster one at a time)
+    detected_objects_labels = []
+    detected_objects = []
 ```
 ##### 1.4) Object Detection Training
 ##### Capture Ojbects in Test World
-##### SVM Training
+The objects that we are attempting to detect, classify, and label will need to be collected, and trained. Each object will be rotated in an isolated environment to collect a point cloud in multiple orientations of the object. This will be repeated until each of the objects has sufficient data:
+```python
+if __name__ == '__main__':
+    rospy.init_node('capture_node')
 
-Visualization snapshot from Gazebo:
-![demo-1](https://user-images.githubusercontent.com/20687560/28748231-46b5b912-7467-11e7-8778-3095172b7b19.png)
+    models = [\
+       'beer',
+       'bowl',
+       'create',
+       'disk_part',
+       'hammer',
+       'plastic_cup',
+       'soda_can']
+
+    # Disable gravity and delete the ground plane
+    initial_setup()
+    labeled_features = []
+
+    for model_name in models:
+        spawn_model(model_name)
+
+        for i in range(5):
+            # make five attempts to get a valid a point cloud then give up
+            sample_was_good = False
+            try_count = 0
+            while not sample_was_good and try_count < 5:
+                sample_cloud = capture_sample()
+                sample_cloud_arr = ros_to_pcl(sample_cloud).to_array()
+
+                # Check for invalid clouds.
+                if sample_cloud_arr.shape[0] == 0:
+                    print('Invalid cloud detected')
+                    try_count += 1
+                else:
+                    sample_was_good = True
+
+            # Extract histogram features
+            chists = compute_color_histograms(sample_cloud, using_hsv=False)
+            normals = get_normals(sample_cloud)
+            nhists = compute_normal_histograms(normals)
+            feature = np.concatenate((chists, nhists))
+            labeled_features.append([feature, model_name])
+
+        delete_model()
+
+
+    pickle.dump(labeled_features, open('training_set.sav', 'wb'))
+```
+##### SVM Training
+The dataset for each object has now been collected, and the Support Vector Machine (SVM) will now be trained to provide a high accuracy object label by characterizing the feature vector. The Normalized Confusion Matrix can be seen below:
+![Confusion Matrix](/Assets/Normalized_Confusion_Matrix.png)
 
 ### **Pick and Place**
 #### 2.1) Create tabletop setups (`test*.world`)
-For each new test world, modify the launch file to load correct pick list:
-```
-<rosparam command="load" file="$(find pr2_robot)/config/pick_list_3.yaml"/>
-```
-Simarly, change the test world within the launch file:
-```
-  <include file="$(find gazebo_ros)/launch/empty_world.launch">
-    <arg name="world_name" value="$(find pr2_robot)/worlds/test3.world"/>
-    <arg name="use_sim_time" value="true"/>
-    <arg name="paused" value="false"/>
-    <arg name="gui" value="true"/>
-    <arg name="headless" value="false"/>
-    <arg name="debug" value="false"/>
-  </include>
-```
+For each new test world, modify the launch file to load correct shopping items
+
 #### 2.2) Perform Object Recognition
-Use the perception pipeline and trained model to detect and label objects on the table for each test world. Here is a sample snapshot of the labeled objects:
-![demo-2](https://user-images.githubusercontent.com/20687560/28748286-9f65680e-7468-11e7-83dc-f1a32380b89c.png)
+Use the perception pipeline and trained model to detect and label objects on the table for each test world
 #### 2.3) Read in Respective Pick Pist (`pick_list_*.yaml`)
-Load pick list for given test world to determine which objects should be selected, as well as the bin they must be placed. Here's an example pick list:
-```
-object_list:
-  - name: biscuits
-    group: green
-  - name: soap
-    group: green
-  - name: soap2
-    group: red
-```
+Load pick list for given test world to determine which objects should be selected, as well as the bin they must be placed
 #### 2.4) Construct Messages for `PickPlace` request and Output to a `.yaml` file
-Output the object label, location, and destination bin. Here is an example object output:
-```
-object_list:
-- arm_name: right
-  object_name: biscuits
-  pick_pose:
-    orientation:
-      w: 0.0
-      x: 0.0
-      y: 0.0
-      z: 0.0
-    position:
-      x: 0.32823479175567627
-      y: -0.003643086412921548
-      z: 0.5888928174972534
-  place_pose:
-    orientation:
-      w: 0.0
-      x: 0.0
-      y: 0.0
-      z: 0.0
-    position:
-      x: 0
-      y: -0.71
-      z: 0.605
-```
+Output the object label, location, and destination bin
+
+
+And here's another image! 
+![demo-2](https://user-images.githubusercontent.com/20687560/28748286-9f65680e-7468-11e7-83dc-f1a32380b89c.png)
+
 #### What worked!
 
 

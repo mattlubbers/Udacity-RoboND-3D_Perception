@@ -175,24 +175,88 @@ The dataset for each object has now been collected, and the Support Vector Machi
 
 ### **Pick and Place**
 #### 2.1) Create tabletop setups (`test*.world`)
-For each new test world, modify the launch file to load correct shopping items
+For each new test world, modify the launch file to load correct shopping items:
+```
+ <!--Launch a gazebo world-->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <!--TODO:Change the world name to load different tabletop setup-->
+    <arg name="world_name" value="$(find pr2_robot)/worlds/test3.world"/>
+  </include>
+```
 
 #### 2.2) Perform Object Recognition
-Use the perception pipeline and trained model to detect and label objects on the table for each test world
+Use the perception pipeline and trained model to detect and label objects on the table for each test world. Call the pcl_callback function, and publish the results through a ROS message:
+```python
+pcl_sub = rospy.Subscriber("/pr2/world/points", pc2.PointCloud2,pcl_callback, queue_size=1)
+```
 #### 2.3) Read in Respective Pick Pist (`pick_list_*.yaml`)
-Load pick list for given test world to determine which objects should be selected, as well as the bin they must be placed
+Load pick list for given test world to determine which objects should be selected, as well as the bin they must be placed:
+```python
+object_list:
+  - name: biscuits
+    group: green
+  - name: soap
+    group: green
+  - name: book
+    group: red
+  - name: soap2
+    group: red
+  - name: glue
+    group: red
+```
 #### 2.4) Construct Messages for `PickPlace` request and Output to a `.yaml` file
-Output the object label, location, and destination bin
+Output the object label, location, and destination bin:
+```python
+def make_yaml_dict(test_scene_num, arm_name, object_name, pick_pose, place_pose):
+    yaml_dict = {}
+    yaml_dict["test_scene_num"] = test_scene_num.data
+    yaml_dict["arm_name"]  = arm_name.data
+    yaml_dict["object_name"] = object_name.data
+    yaml_dict["pick_pose"] = message_converter.convert_ros_message_to_dictionary(pick_pose)
+    yaml_dict["place_pose"] = message_converter.convert_ros_message_to_dictionary(place_pose)
+    return yaml_dict
 
-
-And here's another image! 
-![demo-2](https://user-images.githubusercontent.com/20687560/28748286-9f65680e-7468-11e7-83dc-f1a32380b89c.png)
+# Helper function to output to yaml file
+def send_to_yaml(yaml_filename, dict_list):
+    data_dict = {"object_list": dict_list}
+    with open(yaml_filename, 'w') as outfile:
+        yaml.dump(data_dict, outfile, default_flow_style=False)
+    return
+```
+Example Yaml Output file for a Single Object (Soap):
+```python
+ test_scene_num: 1
+- arm_name: right
+  object_name: soap
+  pick_pose:
+    orientation:
+      w: 0.0
+      x: 0.0
+      y: 0.0
+      z: 0.0
+    position:
+      x: 0.27850213646888733
+      y: 0.561782717704773
+      z: 0.7269566059112549
+  place_pose:
+    orientation:
+      w: 0.0
+      x: 0.0
+      y: 0.0
+      z: 0.0
+    position:
+      x: 0
+      y: -0.71
+      z: 0.605
+```
 
 #### What worked!
-
+The build-out and integration of the perception pipeline was challenging yet informative to understand each element of this project. The previous lessons and exercises were instrumental in preparing the modules necessary to complete these tasks. Overall I'm please with the performance of the perception classification accuracy, and the output yaml files were representative of the objects placed on the table for each corresponding test world.
 
 #### Struggles
+There were many manual configuration steps for the test world, pick list items, object capture, SVM training for each of the 3 test worlds. This caused a lot of time spent figuring out the exact cadence of these routines, running through each set, and creating the output files. 
 
+Gazebo and RVIZ are not stable in the VMware environment, and therefore often required a few launch attempts to get working correctly.
 
 #### Next Steps and Optimizations
 One aspect of this project that was determined to be out of scope was the actuation of the arm to physically grasp the object and move to the representative bin. The next steps would be to use the existing perception pipeline to complete the task of pick and place for end to end detection through placement. 

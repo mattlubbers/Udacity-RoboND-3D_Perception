@@ -113,12 +113,6 @@ Publish Label into RViz:
     label_pos[2] += .4
     object_markers_pub.publish(make_label(label,label_pos, index))
 ```
-Add Object to Object List:
-```python
-    # Classify the clusters! (loop through each detected cluster one at a time)
-    detected_objects_labels = []
-    detected_objects = []
-```
 ##### 1.4) Object Detection Training
 ##### Capture Ojbects in Test World
 The objects that we are attempting to detect, classify, and label will need to be collected, and trained. Each object will be rotated in an isolated environment to collect a point cloud in multiple orientations of the object. This will be repeated until each of the objects has sufficient data:
